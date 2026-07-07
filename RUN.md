@@ -10,7 +10,7 @@
 ### From source (development)
 
 ```bash
-git clone <repo-url>
+git clone <[(https://github.com/abhaydv77/teamcode)]>
 cd teamcode
 
 # Create a virtual environment
