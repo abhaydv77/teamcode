@@ -42,19 +42,18 @@ class StartupScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Label(
             Text.assemble(
-                ("╔═══════════════════════════════════════╗\n", "cyan"),
-                ("║           T E A M C O D E            ║\n", "bold cyan"),
-                ("╚═══════════════════════════════════════╝", "cyan"),
+                ("████████╗███████╗ █████╗ ███╗   ███╗ ██████╗ ██████╗ ██████╗ ███████╗\n", "bold cyan"),
+                ("╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔════╝\n", "cyan"),
+                ("   ██║   █████╗  ███████║██╔████╔██║██║     ██║   ██║██║  ██║█████╗\n", "cyan"),
+                ("   ██║   ██╔══╝  ██╔══██║██║╚██╔╝██║██║     ██║   ██║██║  ██║██╔══╝\n", "cyan"),
+                ("   ██║   ███████╗██║  ██║██║ ╚═╝ ██║╚██████╗╚██████╔╝██████╔╝███████╗\n", "bold cyan"),
+                ("   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝", "cyan"),
             ),
             id="startup-title",
         )
         yield Label(
-            "Terminal-First AI Software Engineering Team",
+            "Terminal-first AI Software Engineering Team",
             id="startup-subtitle",
-        )
-        yield Label(
-            "v0.1.0",
-            id="startup-version",
         )
 
     def on_mount(self) -> None:
@@ -63,5 +62,4 @@ class StartupScreen(Screen):
     def _switch_to_main(self) -> None:
         from teamcode.ui.screens.main_screen import MainScreen
 
-        self.app.push_screen(MainScreen())
-        self.app.remove_screen(self)
+        self.app.switch_screen(MainScreen())
