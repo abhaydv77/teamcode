@@ -1,3 +1,12 @@
+## 🚧 TeamCode
+
+> Terminal-first AI software engineering team.
+
+**Status:** Under active development.
+
+TeamCode is an open-source experiment to build a local AI engineering team where multiple AI models collaborate through specialized roles instead of one model trying to do everything.
+
+The project is not production-ready yet, but the architecture is actively being built in public.
 # TeamCode
 
 **Terminal-first, local AI software engineering team.**
