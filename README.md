@@ -7,7 +7,10 @@
 TeamCode is an open-source experiment to build a local AI engineering team where multiple AI models collaborate through specialized roles instead of one model trying to do everything.
 
 The project is not production-ready yet, but the architecture is actively being built in public.
-# TeamCode
+
+# If you want to understand why I started building TeamCode and where I see it going, take a look at VISION.md.
+
+## TeamCode
 
 **Terminal-first, local AI software engineering team.**
 
