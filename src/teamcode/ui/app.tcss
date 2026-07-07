@@ -1,0 +1,7 @@
+Screen {
+    background: $surface;
+}
+
+* {
+    scrollbar-size-vertical: 1;
+}
