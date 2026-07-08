@@ -23,15 +23,15 @@ class SessionCommand(BaseCommand):
             table.add_row("Session ID", state.get("session_id", "—"))
             table.add_row("Status", state.get("status", "[dim]idle[/]"))
             table.add_row("Task count", str(state.get("task_count", 0)))
-            await app.post_message(app.CommandResult(table))
+            app.post_message(app.CommandResult(table))
             return
 
         sub = args[0]
         if sub == "start":
             app.session_state["status"] = "active"
-            await app.post_message(app.CommandResult("[green]Session started.[/]"))
+            app.post_message(app.CommandResult("[green]Session started.[/]"))
         elif sub == "stop":
             app.session_state["status"] = "idle"
-            await app.post_message(app.CommandResult("[yellow]Session stopped.[/]"))
+            app.post_message(app.CommandResult("[yellow]Session stopped.[/]"))
         else:
-            await app.post_message(app.CommandResult(f"[red]Unknown subcommand: {sub}[/]"))
+            app.post_message(app.CommandResult(f"[red]Unknown subcommand: {sub}[/]"))

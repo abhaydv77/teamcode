@@ -16,7 +16,7 @@ class ConfigCommand(BaseCommand):
 
     async def execute(self, app: TeamCodeApp, args: list[str]) -> None:
         if args:
-            await app.post_message(
+            app.post_message(
                 app.CommandResult(f"[yellow]Setting config: {' '.join(args)}[/]")
             )
             return
@@ -33,4 +33,4 @@ class ConfigCommand(BaseCommand):
         table.add_row("log_level", settings.log_level)
         table.add_row("default_model", settings.default_model)
 
-        await app.post_message(app.CommandResult(table))
+        app.post_message(app.CommandResult(table))

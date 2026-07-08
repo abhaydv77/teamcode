@@ -23,4 +23,4 @@ class HelpCommand(BaseCommand):
         for name, cmd_cls in sorted(CommandRegistry.all().items()):
             table.add_row(f"/{name}", cmd_cls.description)
 
-        await app.post_message(app.CommandResult(table))
+        app.post_message(app.CommandResult(table))

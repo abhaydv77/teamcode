@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import os
 import pkgutil
 from typing import TYPE_CHECKING
@@ -15,11 +16,16 @@ class CommandRegistry:
     @classmethod
     def discover(cls) -> None:
         cls._commands.clear()
+        from teamcode.ui.commands.base import BaseCommand
         package_dir = os.path.dirname(__file__)
         for module_info in pkgutil.iter_modules([package_dir]):
-            if module_info.name == "base" or module_info.name == "registry":
+            name = module_info.name
+            if name == "base" or name == "registry":
                 continue
-            importlib.import_module(f".{module_info.name}", package="teamcode.ui.commands")
+            module = importlib.import_module(f".{name}", package="teamcode.ui.commands")
+            for _, obj in inspect.getmembers(module, inspect.isclass):
+                if issubclass(obj, BaseCommand) and obj is not BaseCommand:
+                    cls._commands[obj.name] = obj
 
     @classmethod
     def register(cls, command_cls: type[BaseCommand]) -> None:

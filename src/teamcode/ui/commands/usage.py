@@ -30,4 +30,4 @@ class UsageCommand(BaseCommand):
         table.add_row("Estimated cost", f"${total_cost:.4f}")
         table.add_row("Session tokens", str(usage.get("session_tokens", 0)))
 
-        await app.post_message(app.CommandResult(table))
+        app.post_message(app.CommandResult(table))

@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import Input
+from textual.widgets import Input, Label
 
 from teamcode.ui.app import TeamCodeApp
-from teamcode.ui.commands.registry import CommandRegistry
-from teamcode.ui.widgets.chat_area import ChatArea
 from teamcode.ui.widgets.command_palette import CommandPalette
+from teamcode.ui.widgets.header import Header
 from teamcode.ui.widgets.input_bar import InputBar
-from teamcode.ui.widgets.status_bar import StatusBar
+from teamcode.ui.widgets.task_timeline import TaskTimeline
+from teamcode.ui.widgets.team_roster import TeamRoster
 
 
 class MainScreen(Screen):
@@ -20,35 +20,47 @@ class MainScreen(Screen):
         layout: vertical;
     }
 
-    #chat-area {
+    #body {
         height: 1fr;
-        min-height: 10;
-        border-bottom: solid $primary 50%;
+    }
+
+    #sidebar {
+        width: 25%;
+        min-width: 22;
+        border-right: solid #1e2a3e;
+    }
+
+    #canvas {
+        width: 75%;
     }
 
     #command-palette {
         dock: bottom;
     }
 
-    #input-bar {
+    #shortcut-legend {
         dock: bottom;
-    }
-
-    #status-bar {
-        dock: bottom;
+        height: 1;
+        background: #0d1117;
+        color: #565f89;
+        padding: 0 3;
     }
     """
 
     def compose(self) -> ComposeResult:
-        with Vertical():
-            yield ChatArea(id="chat-area")
-            yield CommandPalette(id="command-palette")
-            yield InputBar(id="input-bar")
-            yield StatusBar(id="status-bar")
+        yield Header(id="app-header")
+        with Horizontal(id="body"):
+            yield TeamRoster(id="sidebar")
+            yield TaskTimeline(id="canvas")
+        yield CommandPalette(id="command-palette")
+        yield InputBar(id="input-bar")
+        yield Label(
+            " [Tab] Switch Agent  |  [/] Commands  |  [Ctrl+K] Clear   ",
+            id="shortcut-legend",
+        )
 
     def on_mount(self) -> None:
         self.query_one("#input-bar", InputBar).focus_input()
-        CommandRegistry.discover()
 
     @on(Input.Changed, "#message-input")
     async def on_input_changed(self, event: Input.Changed) -> None:
@@ -84,14 +96,20 @@ class MainScreen(Screen):
 
     @on(TeamCodeApp.CommandResult)
     def handle_command_result(self, event: TeamCodeApp.CommandResult) -> None:
-        chat = self.query_one("#chat-area", ChatArea)
-        chat.add_message(event.content)
+        canvas = self.query_one("#canvas", TaskTimeline)
+        canvas.add_message(event.content)
         event.stop()
 
     @on(TeamCodeApp.ClearChat)
     def handle_clear(self, event: TeamCodeApp.ClearChat) -> None:
-        chat = self.query_one("#chat-area", ChatArea)
-        chat.clear()
+        canvas = self.query_one("#canvas", TaskTimeline)
+        canvas.clear()
+        event.stop()
+
+    @on(TeamCodeApp.StateChanged)
+    def handle_state_changed(self, event: TeamCodeApp.StateChanged) -> None:
+        self.query_one("#app-header", Header).refresh_meta()
+        self.query_one("#sidebar", TeamRoster).refresh()
         event.stop()
 
     def key_escape(self) -> None:
@@ -108,8 +126,8 @@ class MainScreen(Screen):
             await self.app.run_command(text)
 
     async def _handle_message(self, text: str) -> None:
-        chat = self.query_one("#chat-area", ChatArea)
-        chat.add_message(f"[bold]You:[/] {text}")
+        canvas = self.query_one("#canvas", TaskTimeline)
+        canvas.add_message(f"[bold #c0caf5]You:[/] {text}")
 
         self._update_history("message", text)
 
@@ -117,10 +135,8 @@ class MainScreen(Screen):
         from datetime import datetime
 
         if hasattr(self.app, "message_history"):
-            self.app.message_history.append(
-                {
-                    "type": msg_type,
-                    "content": content,
-                    "timestamp": datetime.utcnow().isoformat(),
-                }
-            )
+            self.app.message_history.append({
+                "type": msg_type,
+                "content": content,
+                "timestamp": datetime.utcnow().isoformat(),
+            })

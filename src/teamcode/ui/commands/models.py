@@ -35,4 +35,4 @@ class ModelsCommand(BaseCommand):
             status = "[green]✓[/]" if key else "[dim]no key[/]"
             table.add_row(f"{status} {provider}", models)
 
-        await app.post_message(app.CommandResult(table))
+        app.post_message(app.CommandResult(table))

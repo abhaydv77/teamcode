@@ -10,7 +10,7 @@ class StartupScreen(Screen):
     DEFAULT_CSS = """
     StartupScreen {
         align: center middle;
-        background: $surface;
+        background: #0a0e14;
     }
 
     #startup-container {
@@ -21,20 +21,19 @@ class StartupScreen(Screen):
     #startup-title {
         text-align: center;
         content-align: center middle;
-        color: $accent;
     }
 
     #startup-subtitle {
         text-align: center;
         content-align: center middle;
-        color: $text-muted;
+        color: #565f89;
         margin-top: 1;
     }
 
-    #startup-version {
+    #startup-status {
         text-align: center;
         content-align: center middle;
-        color: $text-disabled;
+        color: #565f89;
         margin-top: 1;
     }
     """
@@ -42,18 +41,22 @@ class StartupScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Label(
             Text.assemble(
-                ("████████╗███████╗ █████╗ ███╗   ███╗ ██████╗ ██████╗ ██████╗ ███████╗\n", "bold cyan"),
-                ("╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔════╝\n", "cyan"),
-                ("   ██║   █████╗  ███████║██╔████╔██║██║     ██║   ██║██║  ██║█████╗\n", "cyan"),
-                ("   ██║   ██╔══╝  ██╔══██║██║╚██╔╝██║██║     ██║   ██║██║  ██║██╔══╝\n", "cyan"),
-                ("   ██║   ███████╗██║  ██║██║ ╚═╝ ██║╚██████╗╚██████╔╝██████╔╝███████╗\n", "bold cyan"),
-                ("   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝", "cyan"),
+                ("████████╗███████╗ █████╗ ███╗   ███╗ ██████╗ ██████╗ ██████╗ ███████╗\n", "bold #00d4aa"),
+                ("╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔════╝\n", "#00d4aa"),
+                ("   ██║   █████╗  ███████║██╔████╔██║██║     ██║   ██║██║  ██║█████╗\n", "#00d4aa"),
+                ("   ██║   ██╔══╝  ██╔══██║██║╚██╔╝██║██║     ██║   ██║██║  ██║██╔══╝\n", "#00d4aa"),
+                ("   ██║   ███████╗██║  ██║██║ ╚═╝ ██║╚██████╗╚██████╔╝██████╔╝███████╗\n", "bold #00d4aa"),
+                ("   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝", "#00d4aa"),
             ),
             id="startup-title",
         )
         yield Label(
             "Terminal-first AI Software Engineering Team",
             id="startup-subtitle",
+        )
+        yield Label(
+            "Loading Mission Control...",
+            id="startup-status",
         )
 
     def on_mount(self) -> None:

@@ -39,4 +39,4 @@ class HistoryCommand(BaseCommand):
                 entry.get("timestamp", ""),
             )
 
-        await app.post_message(app.CommandResult(table))
+        app.post_message(app.CommandResult(table))

@@ -13,4 +13,4 @@ class ClearCommand(BaseCommand):
     description = "Clear the chat area"
 
     async def execute(self, app: TeamCodeApp, args: list[str]) -> None:
-        await app.post_message(app.ClearChat())
+        app.post_message(app.ClearChat())

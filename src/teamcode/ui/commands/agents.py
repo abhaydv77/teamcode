@@ -34,4 +34,4 @@ class AgentsCommand(BaseCommand):
             else:
                 table.add_row(role.value, "[dim]unassigned[/]", "—", "—")
 
-        await app.post_message(app.CommandResult(table))
+        app.post_message(app.CommandResult(table))
