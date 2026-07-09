@@ -13,4 +13,4 @@ class ExitCommand(BaseCommand):
     description = "Exit the application"
 
     async def execute(self, app: TeamCodeApp, args: list[str]) -> None:
-        app.action_quit()
+        await app.action_quit()
