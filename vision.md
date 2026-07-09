@@ -1,101 +1,368 @@
-### Vision
+# VISION: TeamCode (v1.0 MVP)
 
-When I started using AI for software development, I noticed something that kept bothering me.
+## Purpose
 
-We expect one model to do everything.
+TeamCode is a terminal-first operating system for AI software engineering teams.
 
-We ask it to understand the product, think about architecture, write code, review its own work, debug issues, remember previous conversations, write documentation, and even decide what should happen next.
+The goal is not to build another AI coding assistant.
 
-It works surprisingly well for small tasks, but as projects grow, everything starts to become one long conversation. Context gets bigger, prompts become more complicated, token usage increases, and eventually the model starts losing sight of the bigger picture.
+The goal is to coordinate multiple AI models and coding agents so each one focuses on a single responsibility instead of asking one model to do everything.
 
-The more I used different models, the more I realized that each of them had different strengths.
+Every architectural decision should support this idea.
 
-Some models are excellent at reasoning.
+---
 
-Some are great at writing code.
+# The Problem
 
-Some are better at reviewing.
+Current AI coding workflows usually look like this:
 
-Some explain ideas beautifully.
+User
+↓
+One AI
+↓
+Planning
+Coding
+Review
+Debugging
+Documentation
 
-Instead of trying to find one model that does everything perfectly, I started wondering:
+This works for small tasks, but large software projects become difficult because one model has to constantly switch responsibilities and consume unnecessary context and tokens.
 
-**What if we stopped treating AI like one assistant and started treating it like a software engineering team?**
+Different models also have different strengths.
 
-That's the idea behind TeamCode.
+Some reason better.
 
-Instead of having a single AI responsible for the entire software development process, TeamCode allows multiple AI models to work together, each with a clear responsibility.
+Some are much faster.
 
-One model might act as the Product Manager, making sure the implementation actually matches the user's requirements.
+Some write better code.
 
-Another might become the Coordinator, responsible for keeping track of the current state, preparing context, and deciding what information each agent should receive.
+Some review better than they generate.
 
-A coding-focused model writes the implementation.
+TeamCode exists to orchestrate those strengths instead of replacing them.
 
-Another reviews the code.
+---
 
-Another tests it.
+# The Goal
 
-Another thinks about architecture.
+The user builds an AI software engineering team.
 
-The important part isn't which model performs each role.
+Each member has exactly one responsibility.
 
-The important part is that every role has one responsibility.
+Example:
 
-Models should be replaceable.
+Product Manager
+↓
+Coordinator
+↓
+Developer
+↓
+Reviewer
+↓
+Tester
+↓
+Documentation
 
-Today you might prefer Gemini as your Product Manager.
+The user decides:
 
-Tomorrow you might decide Claude is better.
+- which provider powers every role
+- which model every role uses
+- how every role behaves
+- how much budget should be spent
+- which tools every role can access
 
-Maybe Groq is faster for coordination.
+Nothing should be hardcoded.
 
-Maybe another open-source model becomes the best reviewer next month.
+Everything should be configurable.
 
-Changing a model shouldn't require changing the architecture.
+---
 
-The workflow should stay the same.
+# Product Principles
 
-Another goal of TeamCode is to give developers complete control.
+## 1. Terminal First
 
-Bring your own API keys.
+The terminal is the product.
 
-Choose your own providers.
+No web dashboard.
 
-Mix different models.
+No unnecessary UI.
 
-Create your own roles.
+Everything should be keyboard driven.
 
-Customize prompts.
+Speed is more important than animations.
 
-Build workflows that fit the way you like to work.
+The interface should feel closer to Claude Code than a traditional application.
 
-Nothing should be locked behind a specific provider or ecosystem.
+---
 
-TeamCode is also intentionally terminal-first.
+## 2. Human Always Controls The Team
 
-The terminal is where many developers already spend most of their time. It is lightweight, scriptable, works over SSH, and fits naturally into existing development workflows.
+TeamCode never hides decisions.
 
-The long-term vision isn't to build another AI chatbot or another AI IDE.
+The user should always understand
 
-It's to build an orchestration layer for AI software engineering teams.
+- why an agent was chosen
+- what prompt was generated
+- what tools were used
+- what files changed
+- how many tokens were consumed
 
-A place where specialized AI agents can collaborate, share context, review each other's work, and solve problems together while the developer stays in control.
+Visibility is more important than automation.
 
-This project is still in its early stages.
+---
 
-There are many ideas that may change as development continues.
+## 3. One Responsibility Per Agent
 
-The architecture will evolve.
+Every role should solve one problem only.
 
-The workflows will improve.
+Examples
 
-Some experiments will fail.
+- Product Manager
+- Developer
+- Reviewer
+- Researcher
+- Token Manager
+- Documentation Writer
 
-Others will become core parts of the project.
+Do not combine unrelated responsibilities.
 
-That's completely expected.
+Small focused agents are preferred over one giant prompt.
 
-If this idea interests you, whether you want to contribute code, discuss architecture, suggest workflows, or simply follow the project, you're more than welcome.
+---
 
-Let's see how far this idea can go.
+## 4. Runtime Should Be Fast
+
+Agent communication should happen entirely in memory.
+
+Use:
+
+- EventBus
+- Task Objects
+- Shared Context
+
+Avoid using markdown files for runtime communication.
+
+Disk should never become the message bus.
+
+---
+
+## 5. Documentation Is A Side Effect
+
+Documentation exists for humans.
+
+It should never slow down runtime execution.
+
+After important work finishes, TeamCode automatically generates project history inside:
+
+.teamcode/
+
+tasks/
+reviews/
+plans/
+decisions/
+progress.md
+sessions/
+
+This history should help both humans and future AI sessions understand why decisions were made.
+
+---
+
+## 6. Adapters Instead Of Tight Coupling
+
+TeamCode should never depend on a single coding agent.
+
+The Developer role should work with interchangeable adapters.
+
+Examples:
+
+OpenCode
+
+Claude Code
+
+Codex CLI
+
+Gemini CLI
+
+Aider
+
+Future coding agents
+
+Changing the developer backend should not require changes to the orchestrator.
+
+---
+
+## 7. Context Is Shared
+
+All agents should work from the same project context.
+
+Project context includes:
+
+- conversation history
+- project files
+- git state
+- current task
+- previous decisions
+- workspace metadata
+
+No agent should maintain isolated knowledge.
+
+---
+
+# Engineering Rules
+
+Prefer composition over inheritance.
+
+Prefer interfaces over implementations.
+
+Prefer configuration over hardcoded behavior.
+
+Prefer events over direct dependencies.
+
+Prefer small independent modules.
+
+Never optimize prematurely.
+
+Never build infrastructure that the MVP does not use.
+
+Every new abstraction must solve an existing problem.
+
+---
+
+# Communication Model
+
+Runtime
+
+User
+
+↓
+
+UI
+
+↓
+
+Orchestrator
+
+↓
+
+EventBus
+
+↓
+
+Agents
+
+↓
+
+Provider
+
+↓
+
+Result
+
+↓
+
+UI
+
+↓
+
+Background Persistence
+
+Documentation
+
+↓
+
+.teamcode/
+
+tasks/
+
+reviews/
+
+progress.md
+
+Runtime communication should never depend on disk I/O.
+
+Documentation is generated asynchronously.
+
+---
+
+# MVP Scope
+
+Version 1 should only solve the following problems:
+
+✓ Terminal UI
+
+✓ Slash commands
+
+✓ Multi-provider configuration
+
+✓ Custom agent roles
+
+✓ LiteLLM integration
+
+✓ Shared conversation context
+
+✓ Event-driven orchestration
+
+✓ Developer adapter
+
+✓ Automatic project documentation
+
+Everything else belongs in a future version.
+
+---
+
+# What TeamCode Is NOT
+
+TeamCode is NOT another chatbot.
+
+TeamCode is NOT another code editor.
+
+TeamCode is NOT another wrapper around an LLM.
+
+TeamCode is an orchestration layer that allows multiple AI models and coding agents to work together as one software engineering team.
+
+---
+
+# Decision Framework
+
+Before implementing any feature, ask:
+
+Does this make the engineering team better?
+
+Does this simplify the user experience?
+
+Can this be implemented later?
+
+Does this belong in the MVP?
+
+If the answer is "no", do not build it yet.
+
+---
+
+# Instructions For AI Contributors
+
+Before making changes:
+
+1. Read this document completely.
+2. Read the current repository structure.
+3. Read existing architecture before introducing new abstractions.
+4. Do not redesign the product without updating this vision.
+5. Protect the MVP.
+6. Prefer shipping working software over building perfect architecture.
+7. If implementation conflicts with this document, explain why before changing the architecture.
+
+Your job is not only to write code.
+
+Your job is to help build TeamCode according to this vision.
+
+## Current Priority
+
+The current objective is to build a usable MVP.
+
+Every completed feature should immediately make TeamCode more usable.
+
+Avoid adding features that only prepare for future functionality.
+
+Ship first.
+
+Iterate second.
+
+Perfect later.
