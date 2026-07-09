@@ -14,6 +14,7 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Input, Label, ListItem, ListView, RichLog
 
+from teamcode.config.settings import TeamCodeSettings
 from teamcode.ui.commands.registry import CommandRegistry
 
 # ═══════════════════════════════════════════════════════════════
@@ -367,7 +368,16 @@ class TeamCodeApp(App):
     CommandResult = CommandResult
     ClearChat = ClearChat
 
+    def post_message(self, message: Message) -> bool:
+        if self.screen is not None and isinstance(message, (CommandResult, ClearChat)):
+            return self.screen.post_message(message)
+        return super().post_message(message)
+
     message_history: list[dict[str, Any]] = []
+    session_state: dict[str, Any] = {}
+    usage_stats: dict[str, Any] = {}
+    agent_assignments: dict[str, dict] = {}
+    settings: TeamCodeSettings = TeamCodeSettings()
 
     def on_mount(self) -> None:
         self.push_screen(MainScreen())
