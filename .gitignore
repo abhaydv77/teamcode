@@ -32,3 +32,4 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 vision.md
+GEMINI.md
