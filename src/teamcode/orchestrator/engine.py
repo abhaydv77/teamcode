@@ -10,6 +10,7 @@ from teamcode.domain.task import TaskStatus
 from teamcode.orchestrator.events import (
     AgentFinished,
     AgentStarted,
+    AgentTokenEvent,
     EventBus,
     SessionEnded,
     SessionStarted,
@@ -39,20 +40,26 @@ class Orchestrator:
         for agent in self.agents:
             await self.event_bus.emit(AgentStarted(agent_name=agent.config.name))
 
-            response = await agent.execute(context)
+            tokens: list[str] = []
+            async for token in agent.execute_stream(context):
+                tokens.append(token)
+                await self.event_bus.emit(
+                    AgentTokenEvent(agent_name=agent.config.name, token=token)
+                )
 
+            full_content = "".join(tokens)
             msg = Message(
                 id=f"msg-{len(context.messages) + 1}",
                 sender=agent.config.name,
-                content=response.content,
+                content=full_content,
                 message_type="agent_response",
                 timestamp=datetime.utcnow(),
             )
             context.messages.append(msg)
-            context.state[agent.config.name] = response.content
+            context.state[agent.config.name] = full_content
 
             await self.event_bus.emit(
-                AgentFinished(agent_name=agent.config.name, response=response)
+                AgentFinished(agent_name=agent.config.name)
             )
 
         routed = self.router.next_agent(context)

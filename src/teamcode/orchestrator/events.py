@@ -41,6 +41,12 @@ class AgentFinished(TeamCodeEvent):
 
 
 @dataclass
+class AgentTokenEvent(TeamCodeEvent):
+    agent_name: str = ""
+    token: str = ""
+
+
+@dataclass
 class ToolStarted(TeamCodeEvent):
     tool_name: str = ""
     args: dict[str, Any] = field(default_factory=dict)

@@ -12,10 +12,21 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widget import Widget
-from textual.widgets import Input, Label, ListItem, ListView, RichLog
+from textual.widgets import Input, Label, ListItem, ListView, RichLog, Static
 
 from teamcode.config.settings import TeamCodeSettings
 from teamcode.ui.commands.registry import CommandRegistry
+
+from uuid import uuid4
+
+from teamcode.agents.registry import AgentRegistry
+from teamcode.domain.agent import AgentConfig, Role
+from teamcode.domain.context import SessionContext
+from teamcode.domain.message import Message as DomainMessage
+from teamcode.domain.task import Task
+from teamcode.orchestrator.engine import Orchestrator
+from teamcode.orchestrator.events import AgentFinished, AgentStarted, AgentTokenEvent
+from teamcode.providers.litellm import LiteLLMProvider
 
 # ═══════════════════════════════════════════════════════════════
 # Constants
@@ -168,23 +179,34 @@ class CommandLauncher(Widget):
 
 
 class ConversationArea(Widget):
-    """Large scrollable conversation / log area."""
+    """Large scrollable conversation / log area with live streaming."""
 
     DEFAULT_CSS = """
     ConversationArea {
         height: 1fr;
         border-top: solid #1e2a3e;
         margin: 0 1;
+        layout: vertical;
     }
 
     ConversationArea > RichLog {
         height: 1fr;
         background: #0d1117;
     }
+
+    #streaming-output {
+        height: auto;
+        max-height: 10;
+        background: #0d1117;
+        color: #c0caf5;
+        padding: 0 1;
+        dock: bottom;
+    }
     """
 
     def compose(self) -> ComposeResult:
-        return [RichLog(id="chat-log", highlight=True, markup=True, wrap=True, min_width=40)]
+        yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True, min_width=40)
+        yield Static(id="streaming-output")
 
     def on_mount(self) -> None:
         self._welcome()
@@ -327,7 +349,69 @@ class MainScreen(Screen):
         await self.app.run_command(text)  # type: ignore[arg-type]
 
     async def _chat(self, text: str) -> None:
-        self.query_one("#conversation", ConversationArea).add(f"[bold #c0caf5]You:[/] {text}")
+        conversation = self.query_one("#conversation", ConversationArea)
+        streaming = self.query_one("#streaming-output", Static)
+        conversation.add(f"[bold #c0caf5]You:[/] {text}")
+
+        context = SessionContext(
+            session_id=str(uuid4()),
+            task=Task(id=str(uuid4()), description=text),
+            messages=[
+                DomainMessage(
+                    id=str(uuid4()),
+                    sender="user",
+                    content=text,
+                ),
+            ],
+        )
+
+        provider = LiteLLMProvider()
+        agents = []
+        for role_key in self.app.TEAM_PIPELINE:
+            config = AgentConfig(
+                role=Role(role_key),
+                name=role_key.replace("_", " ").title(),
+                model=self.app.settings.default_model,
+            )
+            agent = AgentRegistry.create(role_key, config, provider)
+            agents.append(agent)
+
+        orchestrator = Orchestrator(agents=agents)
+
+        current_agent = ""
+        agent_buffer = ""
+
+        async def on_agent_started(event: AgentStarted) -> None:
+            nonlocal current_agent, agent_buffer
+            current_agent = event.agent_name
+            agent_buffer = ""
+            streaming.update(f"[dim #565f89]▸ {event.agent_name} working...[/]")
+
+        async def on_agent_token(event: AgentTokenEvent) -> None:
+            nonlocal agent_buffer
+            agent_buffer += event.token
+            label = event.agent_name.replace("_", " ").title()
+            streaming.update(f"[bold #00d4aa]{label}[/]\n{agent_buffer}")
+
+        async def on_agent_finished(event: AgentFinished) -> None:
+            nonlocal current_agent, agent_buffer
+            if agent_buffer:
+                label = current_agent.replace("_", " ").title()
+                conversation.add(f"\n[bold #00d4aa]{label}[/]")
+                conversation.add(agent_buffer)
+            streaming.update("")
+            current_agent = ""
+            agent_buffer = ""
+
+        orchestrator.event_bus.on(AgentStarted)(on_agent_started)
+        orchestrator.event_bus.on(AgentTokenEvent)(on_agent_token)
+        orchestrator.event_bus.on(AgentFinished)(on_agent_finished)
+
+        try:
+            context = await orchestrator.run(context)
+        except Exception as exc:
+            streaming.update("")
+            conversation.add(f"[bold red]Error:[/] {exc}")
 
     # ── Message handlers ──
 
@@ -378,6 +462,16 @@ class TeamCodeApp(App):
     usage_stats: dict[str, Any] = {}
     agent_assignments: dict[str, dict] = {}
     settings: TeamCodeSettings = TeamCodeSettings()
+
+    TEAM_PIPELINE: list[str] = [
+        "coordinator",
+        "product_manager",
+        "architect",
+        "developer",
+        "reviewer",
+        "tester",
+        "coordinator",
+    ]
 
     def on_mount(self) -> None:
         self.push_screen(MainScreen())

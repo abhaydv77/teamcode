@@ -5,3 +5,5 @@ __all__ = [
     "AgentRegistry",
     "BaseAgent",
 ]
+
+import teamcode.agents.roles  # noqa: F401

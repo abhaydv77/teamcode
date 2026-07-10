@@ -54,3 +54,31 @@ class LiteLLMProvider(BaseProvider):
             model=response.model,
             usage=dict(response.usage) if response.usage else None,
         )
+
+    async def complete_stream(self, request: CompletionRequest):
+        try:
+            import litellm
+        except ImportError:
+            msg = (
+                "LiteLLM is not installed. "
+                "Run: pip install teamcode[litellm] or pip install litellm"
+            )
+            raise ImportError(msg) from None
+
+        messages = []
+        if request.system_prompt:
+            messages.append({"role": "system", "content": request.system_prompt})
+        messages.extend(request.messages)
+
+        response = await litellm.acompletion(
+            model=request.model,
+            messages=messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            stream=True,
+        )
+
+        async for chunk in response:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta

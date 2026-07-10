@@ -35,3 +35,13 @@ class BaseAgent(ABC):
 
     def default_system_prompt(self) -> str:
         return load_prompt(self.config.role.value)
+
+    async def execute_stream(self, context: SessionContext):
+        request = self.build_request(context)
+        stream_method = getattr(self.provider, "complete_stream", None)
+        if stream_method:
+            async for token in stream_method(request):
+                yield token
+        else:
+            response = await self.execute(context)
+            yield response.content

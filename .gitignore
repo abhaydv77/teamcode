@@ -33,3 +33,4 @@ htmlcov/
 .ruff_cache/
 vision.md
 GEMINI.md
+.teamcode
