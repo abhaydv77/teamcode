@@ -58,6 +58,12 @@ class ClearChat(Message):
     pass
 
 
+class CommandSelected(Message):
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__()
+
+
 # ═══════════════════════════════════════════════════════════════
 # Widgets
 # ═══════════════════════════════════════════════════════════════
@@ -99,6 +105,19 @@ class CommandLauncher(Widget):
         color: #0088ff;
     }
 
+    #launcher-input {
+        display: none;
+        width: 1fr;
+        border: none;
+        background: #0d1117;
+        color: #c0caf5;
+        margin: 0 8;
+    }
+
+    #launcher-input.--visible {
+        display: block;
+    }
+
     #launcher-list {
         display: none;
         height: auto;
@@ -137,6 +156,7 @@ class CommandLauncher(Widget):
 
     def compose(self) -> ComposeResult:
         yield Label("</  type a command", id="launcher-prompt")
+        yield Input(id="launcher-input", placeholder="Filter commands...")
         yield ListView(id="launcher-list")
 
     def watch_query(self, q: str) -> None:
@@ -176,6 +196,39 @@ class CommandLauncher(Widget):
         if lv.index is not None and lv.children:
             return getattr(lv.children[lv.index], "cmd_name", None)
         return None
+
+    def set_active(self, active: bool) -> None:
+        launcher_input = self.query_one("#launcher-input", Input)
+        prompt = self.query_one("#launcher-prompt", Label)
+        lv = self.query_one("#launcher-list", ListView)
+        if active:
+            launcher_input.display = True
+            launcher_input.value = ""
+            lv.display = True
+            self._populate("")
+            prompt.update("</ 🔍")
+            prompt.set_classes("active")
+            launcher_input.focus()
+        else:
+            launcher_input.display = False
+            lv.display = False
+            prompt.update("</  type a command")
+            prompt.set_classes("")
+
+    @on(Input.Changed, "#launcher-input")
+    def on_launcher_input_changed(self, event: Input.Changed) -> None:
+        search = event.value.strip()
+        if search:
+            self._populate(search)
+        else:
+            self._populate("")
+
+    @on(Input.Submitted, "#launcher-input")
+    async def on_launcher_input_submitted(self, event: Input.Submitted) -> None:
+        selected = self.selected_cmd_name
+        if selected:
+            event.input.value = ""
+            self.post_message(CommandSelected(selected))
 
 
 class ConversationArea(Widget):
@@ -248,6 +301,10 @@ class InputBar(Widget):
         color: #00d4aa;
     }
 
+    InputBar.--inactive #input-prompt {
+        color: #565f89;
+    }
+
     #message-input {
         width: 1fr;
         border: none;
@@ -267,6 +324,16 @@ class InputBar(Widget):
 
     def focus_input(self) -> None:
         self.query_one("#message-input", Input).focus()
+
+    def set_active(self, active: bool) -> None:
+        message_input = self.query_one("#message-input", Input)
+        if active:
+            self.remove_class("--inactive")
+            message_input.disabled = False
+            message_input.focus()
+        else:
+            self.add_class("--inactive")
+            message_input.disabled = True
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -292,6 +359,8 @@ MainScreen {
 class MainScreen(Screen):
     DEFAULT_CSS = SCREEN_CSS
 
+    mode = reactive("chat")
+
     def compose(self) -> ComposeResult:
         yield Logo()
         yield CommandLauncher(id="launcher")
@@ -306,16 +375,19 @@ class MainScreen(Screen):
         self.query_one("#input-bar", InputBar).focus_input()
         CommandRegistry.discover()
 
-    # ── Input changed → update command launcher ──
+    # ── Input changed → update command launcher (chat mode only) ──
 
     @on(Input.Changed, "#message-input")
     def on_input_changed(self, event: Input.Changed) -> None:
-        self.query_one("#launcher", CommandLauncher).query = event.value
+        if self.mode == "chat":
+            self.query_one("#launcher", CommandLauncher).query = event.value
 
     # ── Input submitted → dispatch ──
 
     @on(Input.Submitted, "#message-input")
     async def on_input_submitted(self, event: Input.Submitted) -> None:
+        if self.mode != "chat":
+            return
         text = event.value.strip()
         if not text:
             return
@@ -425,8 +497,31 @@ class MainScreen(Screen):
         self.query_one("#conversation", ConversationArea).clear()
         event.stop()
 
+    @on(CommandSelected)
+    async def handle_command_selected(self, event: CommandSelected) -> None:
+        await self._run_cmd(f"/{event.name}")
+
+    def key_tab(self) -> None:
+        if self.mode == "chat":
+            self.mode = "command"
+        else:
+            self.mode = "chat"
+
     def key_escape(self) -> None:
-        self.app.action_quit()
+        if self.mode == "command":
+            self.mode = "chat"
+        else:
+            self.app.action_quit()
+
+    def watch_mode(self, new_mode: str) -> None:
+        launcher = self.query_one("#launcher", CommandLauncher)
+        input_bar = self.query_one("#input-bar", InputBar)
+        if new_mode == "command":
+            launcher.set_active(True)
+            input_bar.set_active(False)
+        else:
+            launcher.set_active(False)
+            input_bar.set_active(True)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -453,7 +548,7 @@ class TeamCodeApp(App):
     ClearChat = ClearChat
 
     def post_message(self, message: Message) -> bool:
-        if self.screen is not None and isinstance(message, (CommandResult, ClearChat)):
+        if self.screen is not None and isinstance(message, (CommandResult, ClearChat, CommandSelected)):
             return self.screen.post_message(message)
         return super().post_message(message)
 
