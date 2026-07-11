@@ -2,24 +2,21 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.message import Message
-from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widget import Widget
-from textual.widgets import Input, Label, ListItem, ListView, RichLog, Static
-
-from teamcode.config.settings import TeamCodeSettings
-from teamcode.ui.commands.registry import CommandRegistry
-
-from uuid import uuid4
+from textual.widgets import Input, Label, ListItem, ListView, RichLog
 
 from teamcode.agents.registry import AgentRegistry
+from teamcode.config.settings import TeamCodeSettings
 from teamcode.domain.agent import AgentConfig, Role
 from teamcode.domain.context import SessionContext
 from teamcode.domain.message import Message as DomainMessage
@@ -27,21 +24,7 @@ from teamcode.domain.task import Task
 from teamcode.orchestrator.engine import Orchestrator
 from teamcode.orchestrator.events import AgentFinished, AgentStarted, AgentTokenEvent
 from teamcode.providers.litellm import LiteLLMProvider
-
-# ═══════════════════════════════════════════════════════════════
-# Constants
-# ═══════════════════════════════════════════════════════════════
-
-VERSION = "0.1.0"
-
-LOGO_TEXT = Text.assemble(
-    ("████████╗███████╗ █████╗ ███╗   ███╗ ██████╗ ██████╗ ██████╗ ███████╗\n", "bold #00d4aa"),
-    ("╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔════╝\n", "#00d4aa"),
-    ("   ██║   █████╗  ███████║██╔████╔██║██║     ██║   ██║██║  ██║█████╗\n", "#00d4aa"),
-    ("   ██║   ██╔══╝  ██╔══██║██║╚██╔╝██║██║     ██║   ██║██║  ██║██╔══╝\n", "#00d4aa"),
-    ("   ██║   ███████╗██║  ██║██║ ╚═╝ ██║╚██████╗╚██████╔╝██████╔╝███████╗\n", "bold #00d4aa"),
-    ("   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝", "#00d4aa"),
-)
+from teamcode.ui.commands.registry import CommandRegistry
 
 # ═══════════════════════════════════════════════════════════════
 # Messages
@@ -58,7 +41,7 @@ class ClearChat(Message):
     pass
 
 
-class CommandSelected(Message):
+class OverlayCommand(Message):
     def __init__(self, name: str) -> None:
         self.name = name
         super().__init__()
@@ -69,360 +52,287 @@ class CommandSelected(Message):
 # ═══════════════════════════════════════════════════════════════
 
 
-class Logo(Widget):
-    """Centered TEAMCODE logo banner."""
-
+class Header(Widget):
     DEFAULT_CSS = """
-    Logo {
-        height: 7;
-        content-align: center middle;
-        margin: 1 0 0 0;
+    Header {
+        height: 1;
+        padding: 0 2;
+        background: #0a0e14;
     }
     """
-
-    def render(self) -> Text:
-        return LOGO_TEXT
-
-
-class CommandLauncher(Widget):
-    """Inline </ command area. Expands with command list when input starts with /."""
-
-    DEFAULT_CSS = """
-    CommandLauncher {
-        height: auto;
-        margin: 0 4 0 4;
-        min-height: 2;
-    }
-
-    #launcher-prompt {
-        content-align: center middle;
-        color: #565f89;
-        text-style: bold;
-        height: 1;
-    }
-
-    #launcher-prompt.active {
-        color: #0088ff;
-    }
-
-    #launcher-input {
-        display: none;
-        width: 1fr;
-        border: none;
-        background: #0d1117;
-        color: #c0caf5;
-        margin: 0 8;
-    }
-
-    #launcher-input.--visible {
-        display: block;
-    }
-
-    #launcher-list {
-        display: none;
-        height: auto;
-        max-height: 12;
-        margin: 0 8 0 8;
-        border: solid #1e2a3e;
-        background: #0d1117;
-    }
-
-    #launcher-list.--visible {
-        display: block;
-    }
-
-    CommandLauncher ListItem {
-        height: 1;
-        padding: 0 1;
-        background: #0d1117;
-    }
-
-    CommandLauncher ListItem > Label:first-child {
-        color: #00d4aa;
-        width: 16;
-    }
-
-    CommandLauncher ListItem > Label:last-child {
-        color: #565f89;
-        width: 1fr;
-    }
-
-    CommandLauncher ListItem.--highlight {
-        background: #1e2a3e;
-    }
-    """
-
-    query = reactive("")
 
     def compose(self) -> ComposeResult:
-        yield Label("</  type a command", id="launcher-prompt")
-        yield Input(id="launcher-input", placeholder="Filter commands...")
-        yield ListView(id="launcher-list")
+        yield Label("", id="header-text")
 
-    def watch_query(self, q: str) -> None:
-        prompt = self.query_one("#launcher-prompt", Label)
-        lv = self.query_one("#launcher-list", ListView)
-
-        if q.startswith("/"):
-            prompt.update(f"</ {q}")
-            prompt.set_classes("active")
-            remaining = q[1:]
-            lv.display = True
-            if remaining:
-                self._populate(remaining)
-            else:
-                lv.clear()
-        else:
-            prompt.update("</  type a command")
-            prompt.set_classes("")
-            lv.display = False
-
-    def _populate(self, search: str) -> None:
-        lv = self.query_one("#launcher-list", ListView)
-        lv.clear()
-        for cmd in CommandRegistry.search(search):
-            item = ListItem(
-                Label(f"/{cmd.name}"),
-                Label(cmd.description[:60]),
-            )
-            item.cmd_name = cmd.name
-            lv.append(item)
-        if lv.children:
-            lv.index = 0
-
-    @property
-    def selected_cmd_name(self) -> str | None:
-        lv = self.query_one("#launcher-list", ListView)
-        if lv.index is not None and lv.children:
-            return getattr(lv.children[lv.index], "cmd_name", None)
-        return None
-
-    def set_active(self, active: bool) -> None:
-        launcher_input = self.query_one("#launcher-input", Input)
-        prompt = self.query_one("#launcher-prompt", Label)
-        lv = self.query_one("#launcher-list", ListView)
-        if active:
-            launcher_input.display = True
-            launcher_input.value = ""
-            lv.display = True
-            self._populate("")
-            prompt.update("</ 🔍")
-            prompt.set_classes("active")
-            launcher_input.focus()
-        else:
-            launcher_input.display = False
-            lv.display = False
-            prompt.update("</  type a command")
-            prompt.set_classes("")
-
-    @on(Input.Changed, "#launcher-input")
-    def on_launcher_input_changed(self, event: Input.Changed) -> None:
-        search = event.value.strip()
-        if search:
-            self._populate(search)
-        else:
-            self._populate("")
-
-    @on(Input.Submitted, "#launcher-input")
-    async def on_launcher_input_submitted(self, event: Input.Submitted) -> None:
-        selected = self.selected_cmd_name
-        if selected:
-            event.input.value = ""
-            self.post_message(CommandSelected(selected))
+    def update_info(self, model: str, branch: str) -> None:
+        label = self.query_one("#header-text", Label)
+        label.update(f">_ TeamCode  ·  {model}  ·  {branch}")
 
 
 class ConversationArea(Widget):
-    """Large scrollable conversation / log area with live streaming."""
-
     DEFAULT_CSS = """
     ConversationArea {
         height: 1fr;
-        border-top: solid #1e2a3e;
-        margin: 0 1;
-        layout: vertical;
+        margin: 0 2;
     }
-
     ConversationArea > RichLog {
         height: 1fr;
-        background: #0d1117;
-    }
-
-    #streaming-output {
-        height: auto;
-        max-height: 10;
-        background: #0d1117;
-        color: #c0caf5;
-        padding: 0 1;
-        dock: bottom;
+        background: #0a0e14;
     }
     """
 
     def compose(self) -> ComposeResult:
-        yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True, min_width=40)
-        yield Static(id="streaming-output")
+        yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True)
 
     def on_mount(self) -> None:
-        self._welcome()
+        self._show_empty_state()
+
+    def _show_empty_state(self) -> None:
+        self._showing_empty = True
+        log = self.query_one("#chat-log", RichLog)
+        log.write(Text("\nReady.\n", style="italic #565f89"))
+        log.write(Text("Try:"))
+        log.write(Text('  \u2022 Build a FastAPI API'))
+        log.write(Text('  \u2022 Explain this repository'))
+        log.write(Text('  \u2022 Review my code'))
+        log.write(Text('  \u2022 Configure an AI provider'))
 
     def add(self, content: Any) -> None:
-        self.query_one("#chat-log", RichLog).write(content)
+        log = self.query_one("#chat-log", RichLog)
+        if self._showing_empty:
+            log.clear()
+            self._showing_empty = False
+        log.write(content)
 
     def clear(self) -> None:
         self.query_one("#chat-log", RichLog).clear()
-        self._welcome()
-
-    def _welcome(self) -> None:
-        log = self.query_one("#chat-log", RichLog)
-        log.write(Text.assemble(("TEAMCODE ", "bold #00d4aa"), (f"v{VERSION}", "dim #565f89")))
-        log.write(Text("Terminal-first AI software engineering", "italic #565f89"))
-        log.write("")
-        log.write(Text.assemble(
-            "Type ", ("/help", "bold #0088ff"), " for commands.",
-        ))
-        log.write("")
+        self._show_empty_state()
 
 
 class InputBar(Widget):
-    """Fixed bottom input bar with ❯ prompt."""
-
     DEFAULT_CSS = """
     InputBar {
-        dock: bottom;
         height: 1;
-        background: #0d1117;
-        border-top: solid #1e2a3e;
         layout: horizontal;
+        padding: 0 2;
+        background: #0a0e14;
     }
-
-    #input-prompt {
-        width: 3;
-        content-align: center middle;
+    #prompt {
+        width: 2;
+        color: #c0caf5;
         text-style: bold;
-        color: #00d4aa;
     }
-
-    InputBar.--inactive #input-prompt {
-        color: #565f89;
-    }
-
     #message-input {
         width: 1fr;
         border: none;
-        background: #0d1117;
+        background: #0a0e14;
         color: #c0caf5;
-        padding: 0 0;
-    }
-
-    #message-input:focus {
-        border: none;
     }
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("❯", id="input-prompt")
-        yield Input(id="message-input", placeholder="Type a message or / for commands...")
+        yield Label(">", id="prompt")
+        yield Input(id="message-input", placeholder="Type your task...")
 
     def focus_input(self) -> None:
         self.query_one("#message-input", Input).focus()
 
-    def set_active(self, active: bool) -> None:
-        message_input = self.query_one("#message-input", Input)
-        if active:
-            self.remove_class("--inactive")
-            message_input.disabled = False
-            message_input.focus()
-        else:
-            self.add_class("--inactive")
-            message_input.disabled = True
+
+class InputArea(Widget):
+    DEFAULT_CSS = """
+    InputArea {
+        dock: bottom;
+        height: auto;
+        background: #0a0e14;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield InputBar(id="input-bar")
+        yield FooterBar()
+
+
+class FooterBar(Widget):
+    DEFAULT_CSS = """
+    FooterBar {
+        height: 1;
+        layout: horizontal;
+        padding: 0 2;
+        background: #0a0e14;
+        color: #565f89;
+    }
+    #workspace {
+        width: 1fr;
+    }
+    #shortcuts {
+        width: auto;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Label("", id="workspace")
+        yield Label("Ctrl+K Commands · Esc Cancel", id="shortcuts")
+
+    def update_workspace(self, path: str) -> None:
+        self.query_one("#workspace", Label).update(f"workspace: {path}")
+
+
+class CommandOverlay(Widget):
+    """Compact command palette opened by Ctrl+K."""
+
+    DEFAULT_CSS = """
+    CommandOverlay {
+        layer: overlay;
+        height: auto;
+        max-height: 16;
+        width: 60%;
+        min-width: 40;
+        margin: 1 2;
+        background: #151922;
+        border: solid #1e2a3e;
+        display: none;
+    }
+    CommandOverlay.--visible {
+        display: block;
+    }
+    CommandOverlay > Input {
+        width: 1fr;
+        border: none;
+        background: #151922;
+        color: #c0caf5;
+        margin: 0 1;
+    }
+    CommandOverlay > ListView {
+        height: auto;
+        max-height: 12;
+        background: #151922;
+    }
+    CommandOverlay ListItem {
+        height: 1;
+        padding: 0 1;
+        background: #151922;
+    }
+    CommandOverlay ListItem > Label:first-child {
+        color: #00d4aa;
+        width: 18;
+    }
+    CommandOverlay ListItem > Label:last-child {
+        color: #565f89;
+        width: 1fr;
+    }
+    """
+
+    COMMANDS = [
+        ("Chat", "Resume chat mode"),
+        ("Session", "View session info"),
+        ("Roles", "Manage agent roles"),
+        ("AI Config", "Configure AI provider"),
+        ("Guide", "Show help guide"),
+        ("Exit", "Exit the application"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Input(id="overlay-input", placeholder="Type to filter commands...")
+        yield ListView(id="overlay-list")
+
+    def on_mount(self) -> None:
+        self._populate("")
+
+    def _populate(self, filter_text: str) -> None:
+        lv = self.query_one("#overlay-list", ListView)
+        lv.clear()
+        filter_lower = filter_text.lower()
+        for name, desc in self.COMMANDS:
+            if filter_text and filter_lower not in name.lower() \
+                    and filter_lower not in desc.lower():
+                continue
+            item = ListItem(
+                Label(name),
+                Label(desc),
+            )
+            item.cmd_name = name
+            lv.append(item)
+        if lv.children:
+            lv.index = 0
+
+    @on(Input.Changed, "#overlay-input")
+    def on_input_changed(self, event: Input.Changed) -> None:
+        self._populate(event.value.strip())
+
+    @on(Input.Submitted, "#overlay-input")
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        lv = self.query_one("#overlay-list", ListView)
+        if lv.index is not None and lv.children:
+            selected = lv.children[lv.index]
+            name = getattr(selected, "cmd_name", None)
+            if name:
+                self.post_message(OverlayCommand(name))
+        self._close()
+
+    @on(ListView.Selected, "#overlay-list")
+    def on_list_selected(self, event: ListView.Selected) -> None:
+        if event.item:
+            name = getattr(event.item, "cmd_name", None)
+            if name:
+                self.post_message(OverlayCommand(name))
+        self._close()
+
+    def _close(self) -> None:
+        self.remove_class("--visible")
+        self.query_one("#overlay-input", Input).value = ""
 
 
 # ═══════════════════════════════════════════════════════════════
 # Main Screen
 # ═══════════════════════════════════════════════════════════════
 
-SCREEN_CSS = """
-MainScreen {
-    layout: vertical;
-    background: #0a0e14;
-}
-
-#shortcut-legend {
-    dock: bottom;
-    height: 1;
-    background: #0d1117;
-    color: #565f89;
-    padding: 0 3;
-}
-"""
-
 
 class MainScreen(Screen):
-    DEFAULT_CSS = SCREEN_CSS
-
-    mode = reactive("chat")
+    DEFAULT_CSS = """
+    MainScreen {
+        layout: vertical;
+        background: #0a0e14;
+    }
+    """
 
     def compose(self) -> ComposeResult:
-        yield Logo()
-        yield CommandLauncher(id="launcher")
+        yield Header()
         yield ConversationArea(id="conversation")
-        yield InputBar(id="input-bar")
-        yield Label(
-            " [Tab] Switch Mode  |  [/] Commands  |  [Ctrl+K] Clear  |  [Esc] Quit",
-            id="shortcut-legend",
-        )
+        yield InputArea()
+        yield CommandOverlay(id="command-overlay")
 
     def on_mount(self) -> None:
-        self.query_one("#input-bar", InputBar).focus_input()
         CommandRegistry.discover()
-
-    # ── Input changed → update command launcher (chat mode only) ──
-
-    @on(Input.Changed, "#message-input")
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if self.mode == "chat":
-            self.query_one("#launcher", CommandLauncher).query = event.value
-
-    # ── Input submitted → dispatch ──
+        header = self.query_one(Header)
+        model = self.app.settings.default_model or "\u2014"
+        header.update_info(model, "main")
+        footer = self.query_one(FooterBar)
+        try:
+            footer.update_workspace(os.getcwd())
+        except OSError:
+            footer.update_workspace("\u2014")
+        self.query_one("#message-input", Input).focus()
 
     @on(Input.Submitted, "#message-input")
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        if self.mode != "chat":
-            return
         text = event.value.strip()
         if not text:
             return
-
-        launcher = self.query_one("#launcher", CommandLauncher)
-        if launcher.query.startswith("/"):
-            selected = launcher.selected_cmd_name
-            if selected:
-                event.input.value = ""
-                launcher.query = ""
-                await self._run_cmd(f"/{selected}")
-                self._focus()
-                return
-
         event.input.value = ""
-        launcher.query = ""
-
         if text.startswith("/"):
             await self._run_cmd(text)
         else:
             await self._chat(text)
-
         self._focus()
 
     def _focus(self) -> None:
         self.query_one("#input-bar", InputBar).focus_input()
 
-    # ── Dispatch ──
-
     async def _run_cmd(self, text: str) -> None:
-        await self.app.run_command(text)  # type: ignore[arg-type]
+        await self.app.run_command(text)
 
     async def _chat(self, text: str) -> None:
         conversation = self.query_one("#conversation", ConversationArea)
-        streaming = self.query_one("#streaming-output", Static)
         conversation.add(f"[bold #c0caf5]You:[/] {text}")
 
         context = SessionContext(
@@ -457,21 +367,22 @@ class MainScreen(Screen):
             nonlocal current_agent, agent_buffer
             current_agent = event.agent_name
             agent_buffer = ""
-            streaming.update(f"[dim #565f89]▸ {event.agent_name} working...[/]")
+            label = event.agent_name.replace("_", " ").title()
+            conversation.add(f"\n[bold #00d4aa]\u25cf {label}[/]")
 
         async def on_agent_token(event: AgentTokenEvent) -> None:
             nonlocal agent_buffer
             agent_buffer += event.token
-            label = event.agent_name.replace("_", " ").title()
-            streaming.update(f"[bold #00d4aa]{label}[/]\n{agent_buffer}")
+            if len(agent_buffer) >= 40:
+                conversation.add(agent_buffer)
+                agent_buffer = ""
 
         async def on_agent_finished(event: AgentFinished) -> None:
             nonlocal current_agent, agent_buffer
             if agent_buffer:
-                label = current_agent.replace("_", " ").title()
-                conversation.add(f"\n[bold #00d4aa]{label}[/]")
                 conversation.add(agent_buffer)
-            streaming.update("")
+            label = current_agent.replace("_", " ").title()
+            conversation.add(f"[dim #565f89]\u2713 {label}[/]")
             current_agent = ""
             agent_buffer = ""
 
@@ -480,12 +391,9 @@ class MainScreen(Screen):
         orchestrator.event_bus.on(AgentFinished)(on_agent_finished)
 
         try:
-            context = await orchestrator.run(context)
+            await orchestrator.run(context)
         except Exception as exc:
-            streaming.update("")
-            conversation.add(f"[bold red]Error:[/] {exc}")
-
-    # ── Message handlers ──
+            conversation.add(f"\n[bold red]Error:[/] {exc}")
 
     @on(CommandResult)
     def handle_result(self, event: CommandResult) -> None:
@@ -497,31 +405,37 @@ class MainScreen(Screen):
         self.query_one("#conversation", ConversationArea).clear()
         event.stop()
 
-    @on(CommandSelected)
-    async def handle_command_selected(self, event: CommandSelected) -> None:
-        await self._run_cmd(f"/{event.name}")
-
-    def key_tab(self) -> None:
-        if self.mode == "chat":
-            self.mode = "command"
+    def key_ctrl_k(self) -> None:
+        overlay = self.query_one("#command-overlay", CommandOverlay)
+        if overlay.has_class("--visible"):
+            overlay.remove_class("--visible")
+            self._focus()
         else:
-            self.mode = "chat"
+            overlay.add_class("--visible")
+            overlay.query_one("#overlay-input", Input).focus()
 
     def key_escape(self) -> None:
-        if self.mode == "command":
-            self.mode = "chat"
+        overlay = self.query_one("#command-overlay", CommandOverlay)
+        if overlay.has_class("--visible"):
+            overlay.remove_class("--visible")
+            self._focus()
         else:
             self.app.action_quit()
 
-    def watch_mode(self, new_mode: str) -> None:
-        launcher = self.query_one("#launcher", CommandLauncher)
-        input_bar = self.query_one("#input-bar", InputBar)
-        if new_mode == "command":
-            launcher.set_active(True)
-            input_bar.set_active(False)
-        else:
-            launcher.set_active(False)
-            input_bar.set_active(True)
+    @on(OverlayCommand)
+    async def handle_overlay_command(self, event: OverlayCommand) -> None:
+        command_map = {
+            "Chat": None,
+            "Session": "/session",
+            "Roles": "/agents",
+            "AI Config": "/config",
+            "Guide": "/help",
+            "Exit": "/exit",
+        }
+        cmd = command_map.get(event.name)
+        if cmd:
+            await self._run_cmd(cmd)
+        self._focus()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -531,13 +445,10 @@ class MainScreen(Screen):
 CSS_GLOBALS = """
 Screen { background: #0a0e14; }
 * { scrollbar-size-vertical: 1; scrollbar-color: #1e2a3e; }
-RichLog { background: #0d1117; color: #c0caf5; }
-RichLog > * { background: #0d1117; }
-Input { background: #0d1117; color: #c0caf5; border: none; }
+RichLog { background: #0a0e14; color: #c0caf5; }
+RichLog > * { background: #0a0e14; }
+Input { background: #0a0e14; color: #c0caf5; border: none; }
 Input:focus { border: none; }
-ListView { background: #0d1117; }
-ListItem { background: #0d1117; }
-Label { background: transparent; }
 """
 
 
@@ -548,7 +459,7 @@ class TeamCodeApp(App):
     ClearChat = ClearChat
 
     def post_message(self, message: Message) -> bool:
-        if self.screen is not None and isinstance(message, (CommandResult, ClearChat, CommandSelected)):
+        if self.screen is not None and isinstance(message, (CommandResult, ClearChat)):
             return self.screen.post_message(message)
         return super().post_message(message)
 
