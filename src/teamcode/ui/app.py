@@ -16,6 +16,8 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, ListItem, ListView, RichLog
 
 from teamcode.agents.registry import AgentRegistry
+from teamcode.config.manager import ROLE_NAMES as CM_ROLE_NAMES
+from teamcode.config.manager import ConfigManager
 from teamcode.config.settings import TeamCodeSettings
 from teamcode.domain.agent import AgentConfig, Role
 from teamcode.domain.context import SessionContext
@@ -25,6 +27,16 @@ from teamcode.orchestrator.engine import Orchestrator
 from teamcode.orchestrator.events import AgentFinished, AgentStarted, AgentTokenEvent
 from teamcode.providers.litellm import LiteLLMProvider
 from teamcode.ui.commands.registry import CommandRegistry
+from teamcode.ui.widgets.model_picker import ModelPicker, ModelSelected
+
+MENTION_ALIASES: dict[str, str] = {
+    "pm": "product_manager",
+    "coord": "coordinator",
+    "arch": "architect",
+    "dev": "developer",
+    "rev": "reviewer",
+    "tst": "tester",
+}
 
 # ═══════════════════════════════════════════════════════════════
 # Messages
@@ -300,6 +312,7 @@ class MainScreen(Screen):
         yield ConversationArea(id="conversation")
         yield InputArea()
         yield CommandOverlay(id="command-overlay")
+        yield ModelPicker(id="model-picker", models=[])
 
     def on_mount(self) -> None:
         CommandRegistry.discover()
@@ -319,6 +332,46 @@ class MainScreen(Screen):
         if not text:
             return
         event.input.value = ""
+
+        if self.app.config_pending_action == "key":
+            cm = self.app.config_manager
+            if cm:
+                if cm.validate_api_key(text):
+                    cm.set_api_key(text)
+                    self.query_one("#conversation", ConversationArea).add(
+                        "[green]\u2713 API key saved[/]"
+                    )
+                    self.query_one("#conversation", ConversationArea).add(
+                        self._build_config_display()
+                    )
+                else:
+                    self.query_one("#conversation", ConversationArea).add(
+                        "[bold red]Error:[/] Invalid API key format. Expected sk-or-v1-..."
+                    )
+            self.app.config_pending_action = None
+            self.query_one("#message-input", Input).placeholder = "Type your task..."
+            self._focus()
+            return
+
+        if self.app.roles_pending_action == "prompt":
+            cm = self.app.config_manager
+            role_name = getattr(self, "_roles_editing_name", None)
+            if cm and role_name:
+                role_cfg = cm.get_role_config(role_name)
+                role_cfg["system_prompt"] = text
+                cm.set_role_config(role_name, role_cfg)
+                self.query_one("#conversation", ConversationArea).add(
+                    f"[green]\u2713 Prompt updated for {role_name.replace('_', ' ').title()}[/]"
+                )
+                from teamcode.ui.commands.roles import _build_role_edit
+                self.query_one("#conversation", ConversationArea).add(
+                    _build_role_edit(cm, role_name)
+                )
+            self.app.roles_pending_action = None
+            self.query_one("#message-input", Input).placeholder = "Type your task..."
+            self._focus()
+            return
+
         if text.startswith("/"):
             await self._run_cmd(text)
         else:
@@ -331,32 +384,68 @@ class MainScreen(Screen):
     async def _run_cmd(self, text: str) -> None:
         await self.app.run_command(text)
 
+    def _parse_mention(self, text: str) -> tuple[str | None, str]:
+        if not text.startswith("@"):
+            return None, text
+        rest = text[1:]
+        mention = ""
+        for ch in rest:
+            if ch.isalnum() or ch == "_":
+                mention += ch
+            else:
+                break
+        if not mention:
+            return None, text
+        mention = mention.lower()
+        role_key = MENTION_ALIASES.get(mention, mention)
+        remainder = rest[len(mention):].strip()
+        if role_key not in CM_ROLE_NAMES:
+            return mention, text
+        return role_key, remainder
+
     async def _chat(self, text: str) -> None:
         conversation = self.query_one("#conversation", ConversationArea)
-        conversation.add(f"[bold #c0caf5]You:[/] {text}")
+        cm = self.app.config_manager
+
+        role_key, message_text = self._parse_mention(text)
+        if role_key and role_key not in CM_ROLE_NAMES:
+            conversation.add(f"[bold red]Error:[/] Unknown role '@{role_key}'")
+            return
+        display_text = message_text or text
+        conversation.add(f"[bold #c0caf5]You:[/] {display_text}")
 
         context = SessionContext(
             session_id=str(uuid4()),
-            task=Task(id=str(uuid4()), description=text),
+            task=Task(id=str(uuid4()), description=display_text),
             messages=[
                 DomainMessage(
                     id=str(uuid4()),
                     sender="user",
-                    content=text,
+                    content=display_text,
                 ),
             ],
         )
 
         provider = LiteLLMProvider()
         agents = []
-        for role_key in self.app.TEAM_PIPELINE:
-            config = AgentConfig(
-                role=Role(role_key),
-                name=role_key.replace("_", " ").title(),
-                model=self.app.settings.default_model,
+
+        def _build_agent(rk: str) -> Any:
+            cfg_data = cm.get_role_config(rk) if cm else {}
+            model = cfg_data.get("model", self.app.settings.default_model)
+            system_prompt = cfg_data.get("system_prompt")
+            agent_cfg = AgentConfig(
+                role=Role(rk),
+                name=rk.replace("_", " ").title(),
+                model=model,
+                system_prompt=system_prompt,
             )
-            agent = AgentRegistry.create(role_key, config, provider)
-            agents.append(agent)
+            return AgentRegistry.create(rk, agent_cfg, provider)
+
+        if role_key and role_key in CM_ROLE_NAMES:
+            agents.append(_build_agent(role_key))
+        else:
+            for rk in self.app.TEAM_PIPELINE:
+                agents.append(_build_agent(rk))
 
         orchestrator = Orchestrator(agents=agents)
 
@@ -415,6 +504,34 @@ class MainScreen(Screen):
             overlay.query_one("#overlay-input", Input).focus()
 
     def key_escape(self) -> None:
+        if self.app.config_pending_action:
+            self.app.config_pending_action = None
+            self.query_one("#message-input", Input).placeholder = "Type your task..."
+            self._focus()
+            return
+        if self.app.roles_pending_action:
+            self.app.roles_pending_action = None
+            self.query_one("#message-input", Input).placeholder = "Type your task..."
+            self._focus()
+            return
+        if self.app.roles_mode:
+            if self.app.roles_view == "edit":
+                self.app.roles_view = "list"
+                self.app.roles_editing_role = None
+                from teamcode.ui.commands.roles import _build_role_list
+                cm = self.app.config_manager
+                if cm:
+                    self.query_one("#conversation", ConversationArea).add(
+                        _build_role_list(cm, self.app.roles_active_index)
+                    )
+            else:
+                self.app.roles_mode = False
+            self._focus()
+            return
+        if self.app.config_mode:
+            self.app.config_mode = False
+            self._focus()
+            return
         overlay = self.query_one("#command-overlay", CommandOverlay)
         if overlay.has_class("--visible"):
             overlay.remove_class("--visible")
@@ -427,7 +544,7 @@ class MainScreen(Screen):
         command_map = {
             "Chat": None,
             "Session": "/session",
-            "Roles": "/agents",
+            "Roles": "/roles",
             "AI Config": "/config",
             "Guide": "/help",
             "Exit": "/exit",
@@ -437,10 +554,211 @@ class MainScreen(Screen):
             await self._run_cmd(cmd)
         self._focus()
 
+    # ── Config mode handlers ──
 
-# ═══════════════════════════════════════════════════════════════
-# Application
-# ═══════════════════════════════════════════════════════════════
+    def key_e(self) -> None:
+        if not self.app.config_mode:
+            return
+        if self.app.config_pending_action:
+            return
+        cm = self.app.config_manager
+        if cm is None:
+            return
+        inp = self.query_one("#message-input", Input)
+        inp.placeholder = "Paste your OpenRouter API key..."
+        inp.value = ""
+        inp.focus()
+        self.app.config_pending_action = "key"
+
+    def key_f5(self) -> None:
+        if not self.app.config_mode:
+            return
+        if self.app.config_pending_action:
+            return
+        cm = self.app.config_manager
+        if cm is None:
+            return
+        conversation = self.query_one("#conversation", ConversationArea)
+        conversation.add("[yellow]Testing connection...[/]")
+        ok = cm.test_connection()
+        if ok:
+            conversation.add("[green]\u2713 Connected to OpenRouter[/]")
+        else:
+            conversation.add(
+                "[bold red]Error:[/] Connection failed. Check your API key and network."
+            )
+        conversation.add(self._build_config_display())
+
+    def key_d(self) -> None:
+        if not self.app.config_mode:
+            return
+        if self.app.config_pending_action:
+            return
+        cm = self.app.config_manager
+        if cm is None:
+            return
+        models = cm.get_cached_models()
+        if not models:
+            conversation = self.query_one("#conversation", ConversationArea)
+            conversation.add("[yellow]No cached models — press r to fetch first[/]")
+            return
+        picker = self.query_one("#model-picker", ModelPicker)
+        self._model_picker_target = "default"
+        picker._models = models
+        picker.open()
+
+    def key_r(self) -> None:
+        cm = self.app.config_manager
+        if cm is None:
+            return
+        conversation = self.query_one("#conversation", ConversationArea)
+        if self.app.config_mode and not self.app.config_pending_action:
+            try:
+                models = cm.refresh_models()
+                conversation.add(f"[green]\u2713 Cached {len(models)} models from OpenRouter[/]")
+            except ValueError as exc:
+                conversation.add(f"[bold red]Error:[/] {exc}")
+            except Exception as exc:
+                conversation.add(f"[bold red]Error:[/] Failed to fetch models: {exc}")
+            conversation.add(self._build_config_display())
+            return
+        if self.app.roles_mode:
+            if self.app.roles_view == "edit" and self.app.roles_editing_role:
+                role_name = self.app.roles_editing_role
+                cm.reset_role(role_name)
+                conversation.add(
+                    f"[yellow]\u21ba {role_name.replace('_', ' ').title()} reset to default[/]"
+                )
+                from teamcode.ui.commands.roles import _build_role_edit
+                conversation.add(_build_role_edit(cm, role_name))
+            elif self.app.roles_view == "list":
+                from teamcode.ui.commands.roles import ROLE_ORDER, _build_role_list
+                idx = self.app.roles_active_index
+                if 0 <= idx < len(ROLE_ORDER):
+                    role_name = ROLE_ORDER[idx]
+                    cm.reset_role(role_name)
+                    conversation.add(
+                        f"[yellow]\u21ba {role_name.replace('_', ' ').title()} reset to default[/]"
+                    )
+                    conversation.add(
+                        _build_role_list(cm, self.app.roles_active_index)
+                    )
+            return
+
+    @on(ModelSelected)
+    def handle_model_selected(self, event: ModelSelected) -> None:
+        cm = self.app.config_manager
+        if cm is None:
+            return
+        model_id = event.model_id
+        target = getattr(self, "_model_picker_target", "default")
+        conversation = self.query_one("#conversation", ConversationArea)
+        if target == "default":
+            cm.set_default_model(model_id)
+            conversation.add(f"[green]\u2713 Default model set to {model_id}[/]")
+            conversation.add(self._build_config_display())
+        elif target and target.startswith("role:"):
+            role_name = target[5:]
+            role_cfg = cm.get_role_config(role_name)
+            role_cfg["model"] = model_id
+            cm.set_role_config(role_name, role_cfg)
+            label = role_name.replace("_", " ").title()
+            conversation.add(f"[green]\u2713 {label} model set to {model_id}[/]")
+            if self.app.roles_mode and self.app.roles_view == "edit":
+                from teamcode.ui.commands.roles import _build_role_edit
+                conversation.add(_build_role_edit(cm, role_name))
+        self._focus()
+
+    def _build_config_display(self) -> Any:
+        from teamcode.ui.commands.config import _build_config_display as _bcd
+        cm = self.app.config_manager
+        return _bcd(cm) if cm else "[dim]Configuration unavailable[/]"
+
+    # ── Roles mode handlers ──
+
+    def key_up(self) -> None:
+        if not self.app.roles_mode or self.app.roles_view != "list":
+            return
+        from teamcode.ui.commands.roles import _build_role_list
+        cm = self.app.config_manager
+        if not cm:
+            return
+        self.app.roles_active_index = max(0, self.app.roles_active_index - 1)
+        self.query_one("#conversation", ConversationArea).add(
+            _build_role_list(cm, self.app.roles_active_index, self.app.roles_editing_role)
+        )
+
+    def key_down(self) -> None:
+        if not self.app.roles_mode or self.app.roles_view != "list":
+            return
+        from teamcode.ui.commands.roles import ROLE_ORDER, _build_role_list
+        cm = self.app.config_manager
+        if not cm:
+            return
+        count = len(ROLE_ORDER)
+        self.app.roles_active_index = min(count - 1, self.app.roles_active_index + 1)
+        self.query_one("#conversation", ConversationArea).add(
+            _build_role_list(cm, self.app.roles_active_index, self.app.roles_editing_role)
+        )
+
+    def key_enter(self) -> None:
+        if not self.app.roles_mode:
+            return
+        if self.app.roles_view == "edit":
+            cm = self.app.config_manager
+            if cm and self.app.roles_editing_role:
+                label = self.app.roles_editing_role.replace("_", " ").title()
+                self.query_one("#conversation", ConversationArea).add(
+                    f"[green]\u2713 {label} saved[/]"
+                )
+            self.app.roles_view = "list"
+            self.app.roles_editing_role = None
+            self._focus()
+            return
+        if self.app.roles_view == "list":
+            from teamcode.ui.commands.roles import ROLE_ORDER, _build_role_edit
+            cm = self.app.config_manager
+            if not cm:
+                return
+            idx = self.app.roles_active_index
+            if 0 <= idx < len(ROLE_ORDER):
+                role_name = ROLE_ORDER[idx]
+                self.app.roles_view = "edit"
+                self.app.roles_editing_role = role_name
+                self.query_one("#conversation", ConversationArea).add(
+                    _build_role_edit(cm, role_name)
+                )
+
+    def key_m(self) -> None:
+        if not self.app.roles_mode or self.app.roles_view != "edit":
+            return
+        if not self.app.roles_editing_role:
+            return
+        cm = self.app.config_manager
+        if cm is None:
+            return
+        models = cm.get_cached_models()
+        if not models:
+            self.query_one("#conversation", ConversationArea).add(
+                "[yellow]No cached models — press r in /config to fetch first[/]"
+            )
+            return
+        picker = self.query_one("#model-picker", ModelPicker)
+        self._model_picker_target = f"role:{self.app.roles_editing_role}"
+        picker._models = models
+        picker.open()
+
+    def key_p(self) -> None:
+        if not self.app.roles_mode or self.app.roles_view != "edit":
+            return
+        if not self.app.roles_editing_role:
+            return
+        self._roles_editing_name = self.app.roles_editing_role
+        self.app.roles_pending_action = "prompt"
+        inp = self.query_one("#message-input", Input)
+        inp.placeholder = "Enter new system prompt..."
+        inp.value = ""
+        inp.focus()
 
 CSS_GLOBALS = """
 Screen { background: #0a0e14; }
@@ -468,6 +786,14 @@ class TeamCodeApp(App):
     usage_stats: dict[str, Any] = {}
     agent_assignments: dict[str, dict] = {}
     settings: TeamCodeSettings = TeamCodeSettings()
+    config_manager: ConfigManager | None = None
+    config_mode: bool = False
+    config_pending_action: str | None = None
+    roles_mode: bool = False
+    roles_view: str = "list"
+    roles_active_index: int = 0
+    roles_editing_role: str | None = None
+    roles_pending_action: str | None = None
 
     TEAM_PIPELINE: list[str] = [
         "coordinator",
@@ -480,6 +806,10 @@ class TeamCodeApp(App):
     ]
 
     def on_mount(self) -> None:
+        self.config_manager = ConfigManager(settings=self.settings)
+        key = self.config_manager.get_api_key()
+        if key:
+            os.environ["OPENROUTER_API_KEY"] = key
         self.push_screen(MainScreen())
 
     async def run_command(self, input_text: str) -> None:
