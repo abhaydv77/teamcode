@@ -39,7 +39,7 @@ class SlashPalette(Widget):
         max-height: 16;
         width: 60%;
         min-width: 40;
-        margin: 1 2;
+        margin: 0 2 2 2;
         background: #151922;
         border: solid #1e2a3e;
         display: none;
@@ -105,6 +105,7 @@ class SlashPalette(Widget):
     def on_input_changed(self, event: Input.Changed) -> None:
         if not event.value.strip():
             self._close()
+            self.post_message(SlashPaletteClose())
             return
         self._populate(event.value.strip())
 
@@ -137,6 +138,7 @@ class SlashPalette(Widget):
 
     def key_escape(self) -> None:
         self._close()
+        self.post_message(SlashPaletteClose())
 
     def _close(self) -> None:
         self.remove_class("--visible")

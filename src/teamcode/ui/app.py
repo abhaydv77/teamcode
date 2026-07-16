@@ -183,7 +183,7 @@ class FooterBar(Widget):
 
     def compose(self) -> ComposeResult:
         yield Label("", id="workspace")
-        yield Label("/cmd · Esc Cancel", id="shortcuts")
+        yield Label("/ Commands · Esc Cancel", id="shortcuts")
 
     def update_workspace(self, path: str) -> None:
         self.query_one("#workspace", Label).update(f"workspace: {path}")
@@ -223,9 +223,11 @@ class MainScreen(Screen):
     @on(Input.Changed, "#message-input")
     def on_message_changed(self, event: Input.Changed) -> None:
         value = event.value
-        if value.startswith("/") and len(value) > 1:
-            palette = self.query_one("#slash-palette", SlashPalette)
-            event.input.value = ""
+        palette = self.query_one("#slash-palette", SlashPalette)
+        if palette.has_class("--visible"):
+            return
+        if value.startswith("/"):
+            event.input.value = "/"
             palette.open(value[1:])
 
     @on(Input.Submitted, "#message-input")
