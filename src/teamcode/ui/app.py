@@ -13,7 +13,7 @@ from textual.app import App, ComposeResult
 from textual.message import Message
 from textual.screen import Screen
 from textual.widget import Widget
-from textual.widgets import Input, Label, ListItem, ListView, RichLog
+from textual.widgets import Input, Label, RichLog
 
 from teamcode.agents.registry import AgentRegistry
 from teamcode.config.manager import ROLE_NAMES as CM_ROLE_NAMES
@@ -28,6 +28,12 @@ from teamcode.orchestrator.events import AgentFinished, AgentStarted, AgentToken
 from teamcode.providers.litellm import LiteLLMProvider
 from teamcode.ui.commands.registry import CommandRegistry
 from teamcode.ui.widgets.model_picker import ModelPicker, ModelSelected
+from teamcode.ui.widgets.slash_palette import (
+    CommandSelected,
+    SlashAutocomplete,
+    SlashPalette,
+    SlashPaletteClose,
+)
 
 MENTION_ALIASES: dict[str, str] = {
     "pm": "product_manager",
@@ -51,12 +57,6 @@ class CommandResult(Message):
 
 class ClearChat(Message):
     pass
-
-
-class OverlayCommand(Message):
-    def __init__(self, name: str) -> None:
-        self.name = name
-        super().__init__()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -183,116 +183,10 @@ class FooterBar(Widget):
 
     def compose(self) -> ComposeResult:
         yield Label("", id="workspace")
-        yield Label("Ctrl+K Commands · Esc Cancel", id="shortcuts")
+        yield Label("/cmd · Esc Cancel", id="shortcuts")
 
     def update_workspace(self, path: str) -> None:
         self.query_one("#workspace", Label).update(f"workspace: {path}")
-
-
-class CommandOverlay(Widget):
-    """Compact command palette opened by Ctrl+K."""
-
-    DEFAULT_CSS = """
-    CommandOverlay {
-        layer: overlay;
-        height: auto;
-        max-height: 16;
-        width: 60%;
-        min-width: 40;
-        margin: 1 2;
-        background: #151922;
-        border: solid #1e2a3e;
-        display: none;
-    }
-    CommandOverlay.--visible {
-        display: block;
-    }
-    CommandOverlay > Input {
-        width: 1fr;
-        border: none;
-        background: #151922;
-        color: #c0caf5;
-        margin: 0 1;
-    }
-    CommandOverlay > ListView {
-        height: auto;
-        max-height: 12;
-        background: #151922;
-    }
-    CommandOverlay ListItem {
-        height: 1;
-        padding: 0 1;
-        background: #151922;
-    }
-    CommandOverlay ListItem > Label:first-child {
-        color: #00d4aa;
-        width: 18;
-    }
-    CommandOverlay ListItem > Label:last-child {
-        color: #565f89;
-        width: 1fr;
-    }
-    """
-
-    COMMANDS = [
-        ("Chat", "Resume chat mode"),
-        ("Session", "View session info"),
-        ("Roles", "Manage agent roles"),
-        ("AI Config", "Configure AI provider"),
-        ("Guide", "Show help guide"),
-        ("Exit", "Exit the application"),
-    ]
-
-    def compose(self) -> ComposeResult:
-        yield Input(id="overlay-input", placeholder="Type to filter commands...")
-        yield ListView(id="overlay-list")
-
-    def on_mount(self) -> None:
-        self._populate("")
-
-    def _populate(self, filter_text: str) -> None:
-        lv = self.query_one("#overlay-list", ListView)
-        lv.clear()
-        filter_lower = filter_text.lower()
-        for name, desc in self.COMMANDS:
-            if filter_text and filter_lower not in name.lower() \
-                    and filter_lower not in desc.lower():
-                continue
-            item = ListItem(
-                Label(name),
-                Label(desc),
-            )
-            item.cmd_name = name
-            lv.append(item)
-        if lv.children:
-            lv.index = 0
-
-    @on(Input.Changed, "#overlay-input")
-    def on_input_changed(self, event: Input.Changed) -> None:
-        self._populate(event.value.strip())
-
-    @on(Input.Submitted, "#overlay-input")
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        lv = self.query_one("#overlay-list", ListView)
-        if lv.index is not None and lv.children:
-            selected = lv.children[lv.index]
-            name = getattr(selected, "cmd_name", None)
-            if name:
-                self.post_message(OverlayCommand(name))
-        self._close()
-
-    @on(ListView.Selected, "#overlay-list")
-    def on_list_selected(self, event: ListView.Selected) -> None:
-        if event.item:
-            name = getattr(event.item, "cmd_name", None)
-            if name:
-                self.post_message(OverlayCommand(name))
-        self._close()
-
-    def _close(self) -> None:
-        self.remove_class("--visible")
-        self.query_one("#overlay-input", Input).value = ""
-
 
 # ═══════════════════════════════════════════════════════════════
 # Main Screen
@@ -311,7 +205,7 @@ class MainScreen(Screen):
         yield Header()
         yield ConversationArea(id="conversation")
         yield InputArea()
-        yield CommandOverlay(id="command-overlay")
+        yield SlashPalette(id="slash-palette")
         yield ModelPicker(id="model-picker", models=[])
 
     def on_mount(self) -> None:
@@ -325,6 +219,14 @@ class MainScreen(Screen):
         except OSError:
             footer.update_workspace("\u2014")
         self.query_one("#message-input", Input).focus()
+
+    @on(Input.Changed, "#message-input")
+    def on_message_changed(self, event: Input.Changed) -> None:
+        value = event.value
+        if value.startswith("/") and len(value) > 1:
+            palette = self.query_one("#slash-palette", SlashPalette)
+            event.input.value = ""
+            palette.open(value[1:])
 
     @on(Input.Submitted, "#message-input")
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -494,15 +396,6 @@ class MainScreen(Screen):
         self.query_one("#conversation", ConversationArea).clear()
         event.stop()
 
-    def key_ctrl_k(self) -> None:
-        overlay = self.query_one("#command-overlay", CommandOverlay)
-        if overlay.has_class("--visible"):
-            overlay.remove_class("--visible")
-            self._focus()
-        else:
-            overlay.add_class("--visible")
-            overlay.query_one("#overlay-input", Input).focus()
-
     def key_escape(self) -> None:
         if self.app.config_pending_action:
             self.app.config_pending_action = None
@@ -532,26 +425,26 @@ class MainScreen(Screen):
             self.app.config_mode = False
             self._focus()
             return
-        overlay = self.query_one("#command-overlay", CommandOverlay)
-        if overlay.has_class("--visible"):
-            overlay.remove_class("--visible")
+        palette = self.query_one("#slash-palette", SlashPalette)
+        if palette.has_class("--visible"):
+            palette._close()
             self._focus()
         else:
             self.app.action_quit()
 
-    @on(OverlayCommand)
-    async def handle_overlay_command(self, event: OverlayCommand) -> None:
-        command_map = {
-            "Chat": None,
-            "Session": "/session",
-            "Roles": "/roles",
-            "AI Config": "/config",
-            "Guide": "/help",
-            "Exit": "/exit",
-        }
-        cmd = command_map.get(event.name)
-        if cmd:
-            await self._run_cmd(cmd)
+    @on(CommandSelected)
+    async def handle_slash_command(self, event: CommandSelected) -> None:
+        await self._run_cmd(f"/{event.command_name}")
+        self._focus()
+
+    @on(SlashAutocomplete)
+    def handle_slash_autocomplete(self, event: SlashAutocomplete) -> None:
+        inp = self.query_one("#message-input", Input)
+        inp.value = f"/{event.command_name} "
+        inp.focus()
+
+    @on(SlashPaletteClose)
+    def handle_slash_palette_close(self, event: SlashPaletteClose) -> None:
         self._focus()
 
     # ── Config mode handlers ──
